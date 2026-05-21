@@ -51,7 +51,7 @@ function createUi() {
       :host { all: initial; }
       .launcher, .field-rail, .sheet {
         font-family: Inter, system-ui, sans-serif;
-        color: #111827;
+        color: #f8fafc;
       }
       .launcher {
         position: fixed;
@@ -65,38 +65,39 @@ function createUi() {
       .launcher-button {
         width: 44px;
         height: 44px;
-        border: 1px solid rgba(17,24,39,0.12);
+        border: 1px solid rgba(148,163,184,0.16);
         border-radius: 12px;
-        background: #ffffff;
-        box-shadow: 0 8px 24px rgba(17,24,39,0.16);
+        background: #0b0b0b;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.4);
         display: grid;
         place-items: center;
         cursor: pointer;
-        color: #111827;
+        color: #f8fafc;
       }
       .sheet {
         display: none;
         width: 260px;
         padding: 12px;
         border-radius: 12px;
-        border: 1px solid rgba(17,24,39,0.12);
-        background: #ffffff;
-        box-shadow: 0 18px 40px rgba(17,24,39,0.18);
+        border: 1px solid rgba(148,163,184,0.16);
+        background: #050505;
+        box-shadow: 0 18px 40px rgba(0,0,0,0.45);
       }
       .sheet[data-open="true"] { display: grid; gap: 10px; }
       .sheet select, .sheet button {
         width: 100%;
       }
       .sheet button, .field-action {
-        border: 1px solid rgba(17,24,39,0.12);
-        background: #f9fafb;
+        border: 1px solid rgba(148,163,184,0.16);
+        background: #111827;
+        color: #f8fafc;
         border-radius: 10px;
         height: 34px;
         padding: 0 10px;
         cursor: pointer;
       }
       .sheet button:hover, .field-action:hover, .launcher-button:hover {
-        background: #eef2ff;
+        background: #1f2937;
       }
       .field-rail {
         position: fixed;
@@ -116,7 +117,7 @@ function createUi() {
       .status {
         font-size: 12px;
         line-height: 1.4;
-        color: #4b5563;
+        color: #94a3b8;
       }
       .label {
         display: flex;
@@ -126,10 +127,10 @@ function createUi() {
       }
       .label strong {
         font-size: 13px;
-        color: #111827;
+        color: #f8fafc;
       }
       .muted {
-        color: #6b7280;
+        color: #94a3b8;
       }
     </style>
     <div class="launcher" hidden>
