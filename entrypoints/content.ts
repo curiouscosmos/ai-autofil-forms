@@ -260,22 +260,35 @@ function attachListeners(ui: ReturnType<typeof createUi>) {
     const field = ui.fieldRail.dataset.fieldId ? resolveElementById(ui.fieldRail.dataset.fieldId) : null;
     if (!field || !isFillableField(field)) return;
     const descriptor = describeField(field);
-    const result = await browser.runtime.sendMessage({
-      type: 'autofill-form',
-      page: getPageSnapshot(),
-      descriptors: [descriptor],
-    });
-    const plan = result?.plan?.[0];
-    if (plan?.value) {
-      applyValue(field, plan.value);
-      fieldStates.set(field, {
-        dirty: false,
-        lastValue: getFieldValue(field),
-        source: 'programmatic',
+    try {
+      const result = await browser.runtime.sendMessage({
+        type: 'autofill-form',
+        page: getPageSnapshot(),
+        descriptors: [descriptor],
       });
-      setStatus(ui, `Filled ${descriptor.label || descriptor.name || 'field'}.`);
-    } else {
-      setStatus(ui, 'No value available for this field.');
+      const plan = result?.plan?.[0];
+      if (plan?.value) {
+        applyValue(field, plan.value);
+        fieldStates.set(field, {
+          dirty: false,
+          lastValue: getFieldValue(field),
+          source: 'programmatic',
+        });
+        setStatus(ui, `Filled ${descriptor.label || descriptor.name || 'field'}.`);
+        return;
+      }
+      console.warn('[ai-autofill] fill field returned no value', {
+        descriptor,
+        source: result?.source,
+        error: result?.error,
+      });
+      setStatus(ui, result?.error ? `Unable to fill field: ${result.error}` : 'No value available for this field.');
+    } catch (error) {
+      console.error('[ai-autofill] fill field request failed', {
+        descriptor,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      setStatus(ui, 'Fill request failed. Check console for details.');
     }
   });
 

@@ -7,7 +7,7 @@ import {
   normalizeState,
   setMemoryEntry,
 } from '@/shared/state';
-import { buildPromptPayload, parseAutofillResponse, requestAutofillPlan } from '@/shared/providers';
+import { buildPromptPayload, parseAutofillResponse, resolveAutofillFieldValue, requestAutofillPlan } from '@/shared/providers';
 
 type Message =
   | { type: 'get-state' }
@@ -71,16 +71,42 @@ async function handleMessage(message: Message) {
       fields: descriptors as any,
     });
     const fallbackPlan = buildAutofillPlan(normalized, descriptors);
+    console.info('[ai-autofill][llm] autofill pipeline started', {
+      providerId,
+      model: model || '',
+      fieldCount: descriptors.length,
+      categoryId: activeCategory?.id,
+    });
     if (!apiKey) {
+      console.warn('[ai-autofill][llm] autofill falling back to memory because no api key is configured', {
+        providerId,
+        categoryId: activeCategory?.id,
+      });
       return { plan: fallbackPlan, source: 'memory-only', prompt: payload };
     }
     try {
       const responseText = await requestAutofillPlan(providerId, apiKey, model, payload);
       const parsed = parseAutofillResponse(responseText);
+      console.info('[ai-autofill][llm] autofill response received', {
+        providerId,
+        model: model || '',
+        responseLength: responseText.length,
+        parsedFieldCount: Object.keys(parsed.fields || {}).length,
+      });
+      if (!Object.keys(parsed.fields || {}).length && responseText.trim()) {
+        console.warn('[ai-autofill][llm] autofill response could not be parsed into fields', {
+          providerId,
+          model: model || '',
+          responsePreview: responseText.slice(0, 500),
+        });
+      }
       const fields = parsed.fields as Record<string, string>;
       const plan = descriptors.map((descriptor, index) => {
         const key = fallbackPlan[index]?.key;
-        const proposed = fields[key || descriptor.name] ?? fields[descriptor.name] ?? fallbackPlan[index]?.value ?? '';
+        const proposed =
+          resolveAutofillFieldValue(fields, descriptor, key, descriptors.length === 1) ||
+          fallbackPlan[index]?.value ||
+          '';
         return {
           key,
           value: proposed,
@@ -89,8 +115,18 @@ async function handleMessage(message: Message) {
           canFill: fallbackPlan[index]?.canFill ?? false,
         };
       });
+      console.info('[ai-autofill][llm] autofill plan resolved', {
+        providerId,
+        filledFields: plan.filter((entry) => Boolean(entry.value) && !entry.blocked).length,
+        responseKeys: Object.keys(fields),
+      });
       return { plan, source: providerId, prompt: payload };
     } catch (error) {
+      console.error('[ai-autofill][llm] autofill pipeline failed', {
+        providerId,
+        model: model || '',
+        error: error instanceof Error ? error.message : String(error),
+      });
       return { plan: fallbackPlan, source: 'memory-only', error: error instanceof Error ? error.message : String(error), prompt: payload };
     }
   }

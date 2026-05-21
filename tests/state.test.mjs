@@ -18,6 +18,7 @@ import {
   extractResponseText,
   normalizeModelList,
   parseAutofillResponse,
+  resolveAutofillFieldValue,
 } from '../shared/providers.ts';
 
 test('normalizeState fills defaults and preserves categories', () => {
@@ -96,6 +97,23 @@ test('provider payloads normalize across providers', () => {
   assert.deepEqual(parseAutofillResponse('```json\n{"fields":{"email":"user@example.com"}}\n```'), {
     fields: { email: 'user@example.com' },
   });
+  assert.deepEqual(parseAutofillResponse('Here is the JSON: {"fields":{"firstName":"Ada"}}'), {
+    fields: { firstName: 'Ada' },
+  });
+  assert.deepEqual(parseAutofillResponse('{"firstName":"Ada","lastName":"Lovelace"}'), {
+    fields: { firstName: 'Ada', lastName: 'Lovelace' },
+  });
+  assert.deepEqual(parseAutofillResponse('firstName: Ada\nlastName: Lovelace'), {
+    fields: { firstName: 'Ada', lastName: 'Lovelace' },
+  });
+  assert.equal(
+    resolveAutofillFieldValue(
+      { firstName: 'Ada' },
+      { name: 'firstName', label: 'First Name *', placeholder: '', autocomplete: '', fieldId: 'firstName' },
+      'ai-autofill-first-name',
+    ),
+    'Ada',
+  );
   assert.equal(buildModelListRequest('gemini', 'abc').url, 'https://generativelanguage.googleapis.com/v1beta/models?key=abc');
   assert.deepEqual(
     normalizeModelList('claude', {
