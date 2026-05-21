@@ -180,6 +180,7 @@ function App() {
   async function saveCategory(nextCategory = activeCategory) {
     if (!nextCategory) return;
     await persist(upsertCategory(state, nextCategory));
+    setCategoryEditorId(null);
     setStatus(`Saved ${nextCategory.name}.`);
   }
 
@@ -191,6 +192,9 @@ function App() {
     setIsCreatingCategory(false);
     setCategoryEditorId(next.id);
     setStatus(`Created ${next.name}.`);
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+    });
   }
 
   async function deleteCategory(categoryId: string) {
@@ -215,6 +219,16 @@ function App() {
     };
     await persist(upsertCategory(state, nextCategory));
     setStatus(`${fileEntries.length} file(s) added to ${nextCategory.name}.`);
+  }
+
+  async function openCategoryCreator() {
+    setCategoryEditorId('new');
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+        resolve();
+      });
+    });
   }
 
   return (
@@ -325,7 +339,7 @@ function App() {
           <section className="section">
             <div className="section__row">
               <h2>Categories</h2>
-              <button className="ghost" onClick={() => setCategoryEditorId('new')}>
+              <button className="ghost" onClick={() => void openCategoryCreator()}>
                 Create Category
               </button>
             </div>
@@ -338,8 +352,11 @@ function App() {
                   onClick={() => void toggleCategory(category.id)}
                   type="button"
                 >
-                  <span>{category.name}</span>
-                  <small>{category.instructions ? 'Has instructions' : 'No instructions'}</small>
+                  <span className="category__row">
+                    <span className="category__name">{category.name}</span>
+                    {category.id === state.activeCategoryId ? <span className="category__active-badge">Active</span> : null}
+                  </span>
+                  <small>{previewInstructions(category.instructions)}</small>
                 </button>
               ))}
             </div>
@@ -364,9 +381,6 @@ function App() {
                   <>
                     <div className="section__row">
                       <h3>{activeCategory.name}</h3>
-                      <button type="button" className="ghost" onClick={() => void saveCategory(activeCategory)}>
-                        Save category
-                      </button>
                     </div>
                     <label>
                       <span>Name</span>
@@ -422,6 +436,9 @@ function App() {
                       )}
                     </div>
                     <div className="actions">
+                      <button type="button" className="ghost" onClick={() => void saveCategory(activeCategory)}>
+                        Save category
+                      </button>
                       <button
                         type="button"
                         className="danger"
@@ -472,6 +489,14 @@ function Toggle({
 
 function getProviderLabel(provider: ProviderId) {
   return PROVIDERS.find((entry) => entry.id === provider)?.label ?? provider;
+}
+
+function previewInstructions(instructions: string) {
+  const trimmed = instructions.trim();
+  if (!trimmed) {
+    return 'No instructions';
+  }
+  return trimmed.length > 30 ? `${trimmed.slice(0, 30)}...` : trimmed;
 }
 
 function ExternalLink({ href, children }: { href: string; children: ReactNode }) {

@@ -189,7 +189,7 @@ button:disabled {
 
 .category {
   display: grid;
-  justify-items: start;
+  justify-items: stretch;
   gap: 4px;
   padding: 10px 12px;
   text-align: left;
@@ -204,6 +204,31 @@ button:disabled {
 .muted,
 .file-item small {
   color: #94a3b8;
+}
+
+.category__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.category__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.category__active-badge {
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 600;
+  color: #86efac;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .category-editor {
