@@ -12,7 +12,13 @@ import {
   setMemoryEntry,
   shouldBlockField,
 } from '../shared/state.js';
-import { buildProviderRequest, extractResponseText, parseAutofillResponse } from '../shared/providers.js';
+import {
+  buildModelListRequest,
+  buildProviderRequest,
+  extractResponseText,
+  normalizeModelList,
+  parseAutofillResponse,
+} from '../shared/providers.js';
 
 test('normalizeState fills defaults and preserves categories', () => {
   const state = normalizeState({
@@ -90,5 +96,11 @@ test('provider payloads normalize across providers', () => {
   assert.deepEqual(parseAutofillResponse('```json\n{"fields":{"email":"user@example.com"}}\n```'), {
     fields: { email: 'user@example.com' },
   });
+  assert.equal(buildModelListRequest('gemini', 'abc').url, 'https://generativelanguage.googleapis.com/v1beta/models?key=abc');
+  assert.deepEqual(
+    normalizeModelList('claude', {
+      data: [{ id: 'claude-sonnet-4-20250514', display_name: 'Claude Sonnet 4' }],
+    }),
+    [{ id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' }],
+  );
 });
-

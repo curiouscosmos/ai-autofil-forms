@@ -234,3 +234,40 @@ button:disabled {
   gap: 8px;
   flex-wrap: wrap;
 }
+
+.provider-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  background: #0b0b0b;
+}
+
+.provider-summary__label {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 11px;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.provider-summary strong {
+  display: block;
+  color: #f8fafc;
+  font-size: 14px;
+}
+
+.unlock-message {
+  color: #cbd5e1;
+}
+
+.unlock-message p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #cbd5e1;
+}

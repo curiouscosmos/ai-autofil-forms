@@ -6,7 +6,9 @@ Browser extension for Chrome and Firefox that helps autofill large forms with ca
 
 - Popup settings for connecting to external LLM APIs.
 - Provider support for OpenAI, Claude AI, Google Gemini, XAI, and OpenRouter.
-- Per-provider API key configuration.
+- Per-provider API key configuration with a save step before the rest of the popup unlocks.
+- Provider model lists are fetched after the API key is saved and shown in a dropdown.
+- The popup stays locked to the provider section until a key is saved.
 - Global autofill enable/disable control.
 - Toggle for the autofill icon shown near inputs.
 - User-defined categories such as Job Applications.
@@ -104,6 +106,8 @@ WXT also generates local build metadata in `.wxt/`, which should not be edited m
 ## Current Implementation State
 
 This repository now contains the WXT scaffold plus the first functional extension pass: provider settings, category state, shared autofill heuristics, a content-script launcher, and regression tests for the shared logic. The product scope above remains the behavioral reference for future work.
+
+The popup currently uses a provider-first onboarding flow: choose a provider, enter and save the API key, then configure the model and the rest of the extension settings.
 
 ## Development Notes
 

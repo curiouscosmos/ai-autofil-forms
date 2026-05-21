@@ -57,6 +57,32 @@ export function buildProviderRequest(providerId, apiKey, model, payload) {
   return { url, headers, body, provider };
 }
 
+export function buildModelListRequest(providerId, apiKey) {
+  const provider = getProviderDefinition(providerId);
+  if (providerId === 'gemini') {
+    return {
+      url: `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`,
+      headers: {},
+      provider,
+    };
+  }
+  const url =
+    providerId === 'xai'
+      ? 'https://api.x.ai/v1/models'
+      : providerId === 'openrouter'
+        ? 'https://openrouter.ai/api/v1/models'
+        : providerId === 'claude'
+          ? 'https://api.anthropic.com/v1/models'
+          : 'https://api.openai.com/v1/models';
+  const headers = {
+    ...provider.extraHeaders,
+    ...(provider.authHeader === 'Authorization'
+      ? { Authorization: `${provider.authPrefix || 'Bearer'} ${apiKey}` }
+      : { [provider.authHeader]: apiKey }),
+  };
+  return { url, headers, provider };
+}
+
 export function createRequestBody(providerId, model, payload) {
   if (providerId === 'claude') {
     return JSON.stringify({
@@ -92,6 +118,69 @@ export async function requestAutofillPlan(providerId, apiKey, model, payload) {
   return extractResponseText(providerId, await response.json());
 }
 
+export async function fetchAvailableModels(providerId, apiKey) {
+  const request = buildModelListRequest(providerId, apiKey);
+  const response = await fetch(request.url, {
+    method: 'GET',
+    headers: request.headers,
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Model list request failed (${response.status}): ${text}`);
+  }
+  return normalizeModelList(providerId, await response.json());
+}
+
+export function normalizeModelList(providerId, responseJson) {
+  if (providerId === 'gemini') {
+    return Array.isArray(responseJson?.models)
+      ? responseJson.models
+          .filter((model) => typeof model?.name === 'string')
+          .map((model) => ({
+            id: String(model.name).replace(/^models\//, ''),
+            label: model.displayName || String(model.name).replace(/^models\//, ''),
+          }))
+      : [];
+  }
+  if (providerId === 'claude') {
+    return Array.isArray(responseJson?.data)
+      ? responseJson.data
+          .filter((model) => typeof model?.id === 'string')
+          .map((model) => ({
+            id: String(model.id),
+            label: model.display_name || String(model.id),
+          }))
+      : [];
+  }
+  if (providerId === 'xai') {
+    const items = Array.isArray(responseJson?.data) ? responseJson.data : Array.isArray(responseJson?.models) ? responseJson.models : [];
+    return items
+      .filter((model) => typeof model?.id === 'string')
+      .map((model) => ({
+        id: String(model.id),
+        label: model.display_name || model.name || String(model.id),
+      }));
+  }
+  if (providerId === 'openrouter') {
+    return Array.isArray(responseJson?.data)
+      ? responseJson.data
+          .filter((model) => typeof model?.id === 'string')
+          .map((model) => ({
+            id: String(model.id),
+            label: model.name || String(model.id),
+          }))
+      : [];
+  }
+  return Array.isArray(responseJson?.data)
+    ? responseJson.data
+        .filter((model) => typeof model?.id === 'string')
+        .map((model) => ({
+          id: String(model.id),
+          label: model.id,
+        }))
+    : [];
+}
+
 export function extractResponseText(providerId, responseJson) {
   if (providerId === 'claude') {
     return responseJson?.content?.map?.((block) => block.text || '').join('') || '';
@@ -118,4 +207,3 @@ export function parseAutofillResponse(text) {
   }
   return { fields: {} };
 }
-

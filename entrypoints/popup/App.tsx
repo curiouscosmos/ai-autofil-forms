@@ -4,19 +4,32 @@ import {
   createDefaultState,
   normalizeState,
   PROVIDERS,
-  setActiveCategory,
-  upsertCategory,
   removeCategory,
+  setActiveCategory,
+  type Category,
+  type AutofillState,
+  type ProviderId,
+  upsertCategory,
 } from '@/shared/state';
-import { getDefaultModel } from '@/shared/providers';
+import { fetchAvailableModels, getDefaultModel, type ModelOption } from '@/shared/providers';
 import './App.css';
+
+type ProviderMode = 'editing' | 'connected';
 
 const initialState = createDefaultState();
 
 function App() {
-  const [state, setState] = useState(initialState);
+  const [state, setAppState] = useState<AutofillState>(initialState);
   const [status, setStatus] = useState('Loading settings...');
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [providerMode, setProviderMode] = useState<ProviderMode>('editing');
+  const [providerDraft, setProviderDraft] = useState({
+    provider: initialState.settings.provider as ProviderId,
+    apiKey: '',
+  });
+  const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
+  const [modelLoading, setModelLoading] = useState(false);
+  const [modelError, setModelError] = useState('');
 
   useEffect(() => {
     void load();
@@ -27,15 +40,34 @@ function App() {
     [state],
   );
 
+  const currentProvider = state.settings.provider;
+  const currentApiKey = state.settings.apiKeys[currentProvider] ?? '';
+  const providerConfigured = providerMode === 'connected' && Boolean(currentApiKey);
+  const currentModel = state.settings.models?.[currentProvider] || getDefaultModel(currentProvider);
+  const visibleModelOptions = modelOptions.length
+    ? modelOptions
+    : [{ id: currentModel, label: currentModel }];
+
   async function load() {
-    const current = await browser.runtime.sendMessage({ type: 'get-state' });
-    setState(normalizeState(current));
-    setStatus('Settings loaded.');
+    const current = normalizeState(await browser.runtime.sendMessage({ type: 'get-state' }));
+    setAppState(current);
+    const savedKey = current.settings.apiKeys[current.settings.provider] ?? '';
+    setProviderDraft({ provider: current.settings.provider, apiKey: savedKey });
+    if (savedKey) {
+      setProviderMode('connected');
+      await refreshModels(current.settings.provider, savedKey, current.settings.models[current.settings.provider]);
+      setStatus(`Connected to ${getProviderLabel(current.settings.provider)}.`);
+    } else {
+      setProviderMode('editing');
+      setModelOptions([]);
+      setStatus('Add a provider key to unlock the rest of the popup.');
+    }
   }
 
   async function persist(next: unknown) {
-    const updated = await browser.runtime.sendMessage({ type: 'set-state', patch: next });
-    setState(normalizeState(updated));
+    const updated = normalizeState(await browser.runtime.sendMessage({ type: 'set-state', patch: next }));
+    setAppState(updated);
+    return updated;
   }
 
   async function updateSettings(patch: Record<string, unknown>) {
@@ -47,20 +79,87 @@ function App() {
     });
   }
 
-  async function updateProvider(provider: string) {
-    await updateSettings({ provider });
+  async function refreshModels(provider: ProviderId, apiKey: string, preferredModel?: string) {
+    setModelLoading(true);
+    setModelError('');
+    try {
+      const fetched = await fetchAvailableModels(provider, apiKey);
+      const nextOptions = fetched.length
+        ? fetched
+        : [{ id: getDefaultModel(provider), label: getDefaultModel(provider) }];
+      setModelOptions(nextOptions);
+      const nextModel =
+        preferredModel && nextOptions.some((option) => option.id === preferredModel)
+          ? preferredModel
+          : nextOptions[0]?.id || getDefaultModel(provider);
+      if (nextModel && nextModel !== state.settings.models[provider]) {
+        await updateSettings({
+          models: {
+            ...state.settings.models,
+            [provider]: nextModel,
+          },
+        });
+      }
+      setStatus(`Loaded ${nextOptions.length} model(s) for ${getProviderLabel(provider)}.`);
+    } catch (error) {
+      const fallbackModel = getDefaultModel(provider);
+      setModelOptions([{ id: fallbackModel, label: fallbackModel }]);
+      setModelError(error instanceof Error ? error.message : String(error));
+      if (fallbackModel !== state.settings.models[provider]) {
+        await updateSettings({
+          models: {
+            ...state.settings.models,
+            [provider]: fallbackModel,
+          },
+        });
+      }
+      setStatus(`Using fallback model for ${getProviderLabel(provider)}.`);
+    } finally {
+      setModelLoading(false);
+    }
   }
 
-  async function updateApiKey(provider: string, value: string) {
-    await updateSettings({
-      apiKeys: {
-        ...state.settings.apiKeys,
-        [provider]: value,
+  async function saveProvider() {
+    const provider = providerDraft.provider;
+    const apiKey = providerDraft.apiKey.trim();
+    if (!apiKey) {
+      setStatus('Enter an API key before saving.');
+      return;
+    }
+    const updated = await persist({
+      settings: {
+        ...state.settings,
+        provider,
+        apiKeys: {
+          ...state.settings.apiKeys,
+          [provider]: apiKey,
+        },
       },
+    });
+    setProviderMode('connected');
+    setProviderDraft({ provider, apiKey });
+    await refreshModels(provider, apiKey, updated.settings.models[provider]);
+  }
+
+  async function beginEditProvider() {
+    setProviderDraft({
+      provider: currentProvider,
+      apiKey: currentApiKey,
+    });
+    setModelOptions([]);
+    setModelError('');
+    setProviderMode('editing');
+    setStatus('Update the provider and save a new API key to unlock settings.');
+  }
+
+  async function handleProviderSelection(provider: ProviderId) {
+    setProviderDraft({
+      provider,
+      apiKey: state.settings.apiKeys[provider] ?? '',
     });
   }
 
-  async function updateModel(provider: string, value: string) {
+  async function handleModelChange(provider: ProviderId, value: string) {
     await updateSettings({
       models: {
         ...state.settings.models,
@@ -94,7 +193,7 @@ function App() {
     setStatus('Category removed.');
   }
 
-  async function uploadFiles(categoryId: string, files: FileList | null) {
+  async function uploadFiles(category: Category, files: FileList | null) {
     if (!files?.length) return;
     const fileEntries = await Promise.all(
       Array.from(files).map(async (file) => ({
@@ -105,17 +204,12 @@ function App() {
       })),
     );
     const nextCategory = {
-      ...activeCategory,
-      files: [...activeCategory.files, ...fileEntries],
+      ...category,
+      files: [...category.files, ...fileEntries],
     };
-    if (categoryId === activeCategory.id) {
-      await persist(upsertCategory(state, nextCategory));
-      setStatus(`${fileEntries.length} file(s) added to ${nextCategory.name}.`);
-    }
+    await persist(upsertCategory(state, nextCategory));
+    setStatus(`${fileEntries.length} file(s) added to ${nextCategory.name}.`);
   }
-
-  const provider = state.settings.provider;
-  const selectedModel = state.settings.models?.[provider] || getDefaultModel(provider);
 
   return (
     <div className="popup">
@@ -129,154 +223,205 @@ function App() {
 
       <section className="section">
         <h2>Provider</h2>
-        <div className="grid">
-          <label>
-            <span>LLM provider</span>
-            <select value={provider} onChange={(event) => void updateProvider(event.target.value)}>
-              {PROVIDERS.map((entry) => (
-                <option key={entry.id} value={entry.id}>
-                  {entry.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>API key</span>
-            <input
-              type="password"
-              value={state.settings.apiKeys[provider] ?? ''}
-              onChange={(event) => void updateApiKey(provider, event.target.value)}
-              placeholder={`Paste ${PROVIDERS.find((entry) => entry.id === provider)?.label ?? 'provider'} key`}
-            />
-          </label>
-          <label>
-            <span>Model</span>
-            <input
-              value={selectedModel}
-              onChange={(event) => void updateModel(provider, event.target.value)}
-              placeholder={getDefaultModel(provider)}
-            />
-          </label>
-        </div>
-      </section>
-
-      <section className="section">
-        <h2>Behavior</h2>
-        <div className="toggles">
-          <Toggle
-            label="Autofill enabled"
-            checked={state.settings.autofillEnabled}
-            onChange={(checked) => void updateSettings({ autofillEnabled: checked })}
-          />
-          <Toggle
-            label="Show field icons"
-            checked={state.settings.showFieldIcons}
-            onChange={(checked) => void updateSettings({ showFieldIcons: checked })}
-          />
-          <Toggle
-            label="Show floating launcher"
-            checked={state.settings.showLauncher}
-            onChange={(checked) => void updateSettings({ showLauncher: checked })}
-          />
-        </div>
-      </section>
-
-      <section className="section">
-        <div className="section__row">
-          <h2>Categories</h2>
-          <button className="ghost" onClick={() => void saveCategory()}>Save current</button>
-        </div>
-        <div className="category-list">
-          {state.categories.map((category) => (
-            <button
-              key={category.id}
-              className={category.id === state.activeCategoryId ? 'category category--active' : 'category'}
-              onClick={() => void toggleCategory(category.id)}
-              type="button"
-            >
-              <span>{category.name}</span>
-              <small>{category.instructions ? 'Has instructions' : 'No instructions'}</small>
-            </button>
-          ))}
-        </div>
-        <div className="stack">
-          <label>
-            <span>New category</span>
-            <div className="inline">
+        {!providerConfigured ? (
+          <div className="grid">
+            <label>
+              <span>LLM provider</span>
+              <select value={providerDraft.provider} onChange={(event) => void handleProviderSelection(event.target.value as ProviderId)}>
+                {PROVIDERS.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {entry.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>API key</span>
               <input
-                value={newCategoryName}
-                onChange={(event) => setNewCategoryName(event.target.value)}
-                placeholder="Job Applications"
+                type="password"
+                value={providerDraft.apiKey}
+                onChange={(event) => setProviderDraft((current) => ({ ...current, apiKey: event.target.value }))}
+                placeholder={`Paste ${getProviderLabel(providerDraft.provider)} key`}
+                autoComplete="off"
+                spellCheck={false}
               />
-              <button type="button" onClick={() => void addCategory()}>
-                Add
+            </label>
+            <button type="button" onClick={() => void saveProvider()}>
+              Save API key
+            </button>
+          </div>
+        ) : (
+          <div className="provider-summary">
+            <div>
+              <span className="provider-summary__label">Connected provider</span>
+              <strong>{getProviderLabel(currentProvider)}</strong>
+            </div>
+            <button type="button" className="ghost" onClick={() => void beginEditProvider()}>
+              Change
+            </button>
+          </div>
+        )}
+      </section>
+
+      {providerConfigured ? (
+        <>
+          <section className="section">
+            <div className="section__row">
+              <h2>Model</h2>
+              <span className="muted">{modelLoading ? 'Loading models...' : modelError || 'Ready'}</span>
+            </div>
+            <div className="grid">
+              <label>
+                <span>Model selection</span>
+                <select
+                  value={currentModel}
+                  onChange={(event) => void handleModelChange(currentProvider, event.target.value)}
+                  disabled={modelLoading}
+                >
+                  {visibleModelOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => void refreshModels(currentProvider, currentApiKey, currentModel)}
+                disabled={modelLoading || !currentApiKey}
+              >
+                Refresh models
               </button>
             </div>
-          </label>
+          </section>
 
-          {activeCategory ? (
-            <div className="category-editor">
-              <label>
-                <span>Name</span>
-                <input
-                  value={activeCategory.name}
-                  onChange={(event) =>
-                    setState({
-                      ...state,
-                      categories: state.categories.map((category) =>
-                        category.id === activeCategory.id ? { ...category, name: event.target.value } : category,
-                      ),
-                    })
-                  }
-                />
-              </label>
-              <label>
-                <span>Instructions</span>
-                <textarea
-                  value={activeCategory.instructions}
-                  onChange={(event) =>
-                    setState({
-                      ...state,
-                      categories: state.categories.map((category) =>
-                        category.id === activeCategory.id ? { ...category, instructions: event.target.value } : category,
-                      ),
-                    })
-                  }
-                  placeholder="Tell the AI what to prioritize for this category."
-                />
-              </label>
-              <label>
-                <span>Upload supporting file</span>
-                <input
-                  type="file"
-                  multiple
-                  onChange={(event) => void uploadFiles(activeCategory.id, event.target.files)}
-                />
-              </label>
-              <div className="file-list">
-                {activeCategory.files.length ? (
-                  activeCategory.files.map((file) => (
-                    <div className="file-item" key={`${activeCategory.id}-${file.name}-${file.size}`}>
-                      <strong>{file.name}</strong>
-                      <small>{Math.max(1, Math.round(file.text.length / 1024))} KB extracted text</small>
-                    </div>
-                  ))
-                ) : (
-                  <p className="muted">No files stored for this category.</p>
-                )}
-              </div>
-              <div className="actions">
-                <button type="button" className="ghost" onClick={() => void saveCategory(activeCategory)}>
-                  Save category
-                </button>
-                <button type="button" className="danger" onClick={() => void deleteCategory(activeCategory.id)} disabled={state.categories.length === 1}>
-                  Delete category
-                </button>
-              </div>
+          <section className="section">
+            <h2>Behavior</h2>
+            <div className="toggles">
+              <Toggle
+                label="Autofill enabled"
+                checked={state.settings.autofillEnabled}
+                onChange={(checked) => void updateSettings({ autofillEnabled: checked })}
+              />
+              <Toggle
+                label="Show field icons"
+                checked={state.settings.showFieldIcons}
+                onChange={(checked) => void updateSettings({ showFieldIcons: checked })}
+              />
+              <Toggle
+                label="Show floating launcher"
+                checked={state.settings.showLauncher}
+                onChange={(checked) => void updateSettings({ showLauncher: checked })}
+              />
             </div>
-          ) : null}
-        </div>
-      </section>
+          </section>
+
+          <section className="section">
+            <div className="section__row">
+              <h2>Categories</h2>
+              <button className="ghost" onClick={() => void saveCategory()}>
+                Save current
+              </button>
+            </div>
+            <div className="category-list">
+              {state.categories.map((category) => (
+                <button
+                  key={category.id}
+                  className={category.id === state.activeCategoryId ? 'category category--active' : 'category'}
+                  onClick={() => void toggleCategory(category.id)}
+                  type="button"
+                >
+                  <span>{category.name}</span>
+                  <small>{category.instructions ? 'Has instructions' : 'No instructions'}</small>
+                </button>
+              ))}
+            </div>
+            <div className="stack">
+              <label>
+                <span>New category</span>
+                <div className="inline">
+                  <input
+                    value={newCategoryName}
+                    onChange={(event) => setNewCategoryName(event.target.value)}
+                    placeholder="Job Applications"
+                  />
+                  <button type="button" onClick={() => void addCategory()}>
+                    Add
+                  </button>
+                </div>
+              </label>
+
+              {activeCategory ? (
+                <div className="category-editor">
+                  <label>
+                    <span>Name</span>
+                    <input
+                      value={activeCategory.name}
+                      onChange={(event) =>
+                        setAppState({
+                          ...state,
+                          categories: state.categories.map((category) =>
+                            category.id === activeCategory.id ? { ...category, name: event.target.value } : category,
+                          ),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>Instructions</span>
+                    <textarea
+                      value={activeCategory.instructions}
+                      onChange={(event) =>
+                        setAppState({
+                          ...state,
+                          categories: state.categories.map((category) =>
+                            category.id === activeCategory.id ? { ...category, instructions: event.target.value } : category,
+                          ),
+                        })
+                      }
+                      placeholder="Tell the AI what to prioritize for this category."
+                    />
+                  </label>
+                  <label>
+                    <span>Upload supporting file</span>
+                    <input type="file" multiple onChange={(event) => void uploadFiles(activeCategory, event.target.files)} />
+                  </label>
+                  <div className="file-list">
+                    {activeCategory.files.length ? (
+                      activeCategory.files.map((file) => (
+                        <div className="file-item" key={`${activeCategory.id}-${file.name}-${file.size}`}>
+                          <strong>{file.name}</strong>
+                          <small>{Math.max(1, Math.round(file.text.length / 1024))} KB extracted text</small>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="muted">No files stored for this category.</p>
+                    )}
+                  </div>
+                  <div className="actions">
+                    <button type="button" className="ghost" onClick={() => void saveCategory(activeCategory)}>
+                      Save category
+                    </button>
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={() => void deleteCategory(activeCategory.id)}
+                      disabled={state.categories.length === 1}
+                    >
+                      Delete category
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </section>
+        </>
+      ) : (
+        <section className="section unlock-message">
+          <p>Add and save an API key to unlock model selection, categories, autofill behavior, and the floating launcher settings.</p>
+        </section>
+      )}
     </div>
   );
 }
@@ -296,6 +441,10 @@ function Toggle({
       <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
     </label>
   );
+}
+
+function getProviderLabel(provider: ProviderId) {
+  return PROVIDERS.find((entry) => entry.id === provider)?.label ?? provider;
 }
 
 export default App;
