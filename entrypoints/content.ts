@@ -14,7 +14,7 @@ import {
 
 type AppState = AutofillState;
 
-const fieldStates = new WeakMap<Element, { dirty: boolean; lastValue: string }>();
+const fieldStates = new WeakMap<Element, { dirty: boolean; lastValue: string; source: 'user' | 'programmatic' | 'prefill' }>();
 let appState: AppState | null = null;
 let launcherVisible = true;
 let fieldRailHideTimer: ReturnType<typeof setTimeout> | null = null;
@@ -117,7 +117,12 @@ function createUi() {
         justify-content: center;
       }
       .field-action--save {
-        min-width: 54px;
+        min-width: 42px;
+      }
+      .field-action--save svg {
+        width: 16px;
+        height: 16px;
+        display: block;
       }
       .status {
         font-size: 12px;
@@ -151,7 +156,11 @@ function createUi() {
     </div>
     <div class="field-rail" aria-live="polite">
       <button class="field-action" id="field-fill" title="Fill field" aria-label="Fill field">↯</button>
-      <button class="field-action field-action--save" id="field-save" title="Save field" aria-label="Save field">Save</button>
+      <button class="field-action field-action--save" id="field-save" title="Save this in memory" aria-label="Save this in memory">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h11.38a1.5 1.5 0 0 1 1.06.44l1.62 1.62A1.5 1.5 0 0 1 20 7.12V18.5A1.5 1.5 0 0 1 18.5 20h-13A1.5 1.5 0 0 1 4 18.5v-13Zm2 0V18h12V7.25L16.63 6H6Zm2 0V10h6V5.5H8Zm0 7.5v5h8v-5H8Z" fill="currentColor" />
+        </svg>
+      </button>
     </div>
   `;
   return {
@@ -215,6 +224,7 @@ function attachListeners(ui: ReturnType<typeof createUi>) {
       scheduleFieldRailHide(ui);
       return;
     }
+    ensureFieldState(target);
     showFieldRail(ui, target);
   });
 
@@ -235,9 +245,11 @@ function attachListeners(ui: ReturnType<typeof createUi>) {
   document.addEventListener('input', (event) => {
     const field = findField(event.target);
     if (!field) return;
-    const state = fieldStates.get(field) ?? { dirty: false, lastValue: '' };
+    const state = fieldStates.get(field) ?? { dirty: false, lastValue: '', source: 'prefill' };
+    const isUserEdit = isTrustedUserInput(event);
     state.dirty = true;
     state.lastValue = getFieldValue(field);
+    state.source = isUserEdit ? 'user' : 'programmatic';
     fieldStates.set(field, state);
     if (appState?.settings.showFieldIcons) {
       showFieldRail(ui, field);
@@ -256,6 +268,11 @@ function attachListeners(ui: ReturnType<typeof createUi>) {
     const plan = result?.plan?.[0];
     if (plan?.value) {
       applyValue(field, plan.value);
+      fieldStates.set(field, {
+        dirty: false,
+        lastValue: getFieldValue(field),
+        source: 'programmatic',
+      });
       setStatus(ui, `Filled ${descriptor.label || descriptor.name || 'field'}.`);
     } else {
       setStatus(ui, 'No value available for this field.');
@@ -267,6 +284,7 @@ function attachListeners(ui: ReturnType<typeof createUi>) {
     if (!field || !canShowSaveAction(describeField(field))) return;
     const descriptor = describeField(field);
     const value = getFieldValue(field);
+    if (fieldStates.get(field)?.source !== 'user' || value.trim() === '') return;
     appState = normalizeState(await browser.runtime.sendMessage({
       type: 'save-memory',
       descriptor,
@@ -323,6 +341,7 @@ function setStatus(ui: ReturnType<typeof createUi>, text: string) {
 
 function showFieldRail(ui: ReturnType<typeof createUi>, field: HTMLElement): void {
   clearFieldRailHideTimer();
+  ensureFieldState(field);
   const descriptor = describeField(field);
   if (descriptor.blockedForm || !canShowFillAction(descriptor)) {
     hideFieldRail(ui);
@@ -335,7 +354,7 @@ function showFieldRail(ui: ReturnType<typeof createUi>, field: HTMLElement): voi
   }
   ui.fieldRail.dataset.open = 'true';
   ui.fieldRail.dataset.fieldId = ensureFieldId(field);
-  ui.fieldSaveButton.hidden = !canShowSaveAction(descriptor) || !state?.dirty;
+  ui.fieldSaveButton.hidden = !canShowSaveAction(descriptor) || state?.source !== 'user' || getFieldValue(field).trim() === '';
   const rect = getFieldRect(field);
   ui.fieldRail.style.top = `${rect.top + rect.height / 2}px`;
   ui.fieldRail.style.left = `${Math.min(window.innerWidth - 120, rect.right + 8)}px`;
@@ -361,6 +380,12 @@ function clearFieldRailHideTimer(): void {
     clearTimeout(fieldRailHideTimer);
     fieldRailHideTimer = null;
   }
+}
+
+function isTrustedUserInput(event: Event): boolean {
+  if (!(event instanceof InputEvent)) return false;
+  if (!event.isTrusted) return false;
+  return event.inputType !== 'insertReplacementText';
 }
 
 function repositionOpenFieldRail(ui: ReturnType<typeof createUi>): void {
@@ -520,6 +545,19 @@ function applyValue(field: HTMLElement, value: string): void {
   }
   input.dispatchEvent(new Event('input', { bubbles: true }));
   input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function ensureFieldState(field: HTMLElement): { dirty: boolean; lastValue: string; source: 'user' | 'programmatic' | 'prefill' } {
+  const existing = fieldStates.get(field);
+  if (existing) return existing;
+  const currentValue = getFieldValue(field);
+  const state = {
+    dirty: false,
+    lastValue: currentValue,
+    source: currentValue.trim() ? 'prefill' : 'prefill',
+  } as const;
+  fieldStates.set(field, state);
+  return state;
 }
 
 function getFieldValue(field: HTMLElement): string {
