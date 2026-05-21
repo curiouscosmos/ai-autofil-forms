@@ -11,14 +11,14 @@ import {
   setActiveCategory,
   setMemoryEntry,
   shouldBlockField,
-} from '../shared/state.js';
+} from '../shared/state.ts';
 import {
   buildModelListRequest,
   buildProviderRequest,
   extractResponseText,
   normalizeModelList,
   parseAutofillResponse,
-} from '../shared/providers.js';
+} from '../shared/providers.ts';
 
 test('normalizeState fills defaults and preserves categories', () => {
   const state = normalizeState({

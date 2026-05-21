@@ -1,6 +1,78 @@
 export const STORAGE_KEY = 'ai-autofill-state';
 
-export const PROVIDERS = [
+export type ProviderId = 'openai' | 'claude' | 'gemini' | 'xai' | 'openrouter';
+
+export interface ProviderDefinition {
+  id: ProviderId;
+  label: string;
+  apiBaseUrl: string;
+  authHeader: string;
+  authPrefix?: string;
+  extraHeaders?: Record<string, string>;
+}
+
+export interface CategoryFileEntry {
+  name: string;
+  text: string;
+  size: number;
+  type: string;
+}
+
+export interface Category {
+  id: string;
+  name: string;
+  instructions: string;
+  active: boolean;
+  files: CategoryFileEntry[];
+}
+
+export interface SettingsState {
+  provider: ProviderId;
+  apiKeys: Partial<Record<ProviderId, string>>;
+  models: Partial<Record<ProviderId, string>>;
+  autofillEnabled: boolean;
+  showFieldIcons: boolean;
+  showLauncher: boolean;
+}
+
+export interface MemoryEntry {
+  value: string;
+  updatedAt: string;
+  label: string;
+  type: string;
+}
+
+export interface AutofillState {
+  settings: SettingsState;
+  categories: Category[];
+  activeCategoryId: string;
+  memory: Record<string, Record<string, Record<string, MemoryEntry>>>;
+}
+
+export interface FieldDescriptor {
+  siteKey: string;
+  formKey: string;
+  label: string;
+  name: string;
+  placeholder: string;
+  autocomplete: string;
+  type: string;
+  formName: string;
+  blockedForm?: boolean;
+  eligible?: boolean;
+  fieldId?: string;
+  categoryId?: string;
+}
+
+export interface AutofillPlanEntry {
+  key: string;
+  value: string;
+  blocked: boolean;
+  canSave: boolean;
+  canFill: boolean;
+}
+
+export const PROVIDERS: ProviderDefinition[] = [
   { id: 'openai', label: 'OpenAI', apiBaseUrl: 'https://api.openai.com/v1/chat/completions', authHeader: 'Authorization', authPrefix: 'Bearer' },
   { id: 'claude', label: 'Claude AI', apiBaseUrl: 'https://api.anthropic.com/v1/messages', authHeader: 'x-api-key', extraHeaders: { 'anthropic-version': '2023-06-01' } },
   { id: 'gemini', label: 'Google Gemini', apiBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/models', authHeader: 'x-goog-api-key' },
@@ -8,7 +80,7 @@ export const PROVIDERS = [
   { id: 'openrouter', label: 'OpenRouter', apiBaseUrl: 'https://openrouter.ai/api/v1/chat/completions', authHeader: 'Authorization', authPrefix: 'Bearer', extraHeaders: { 'X-OpenRouter-Experimental-Metadata': 'enabled' } },
 ];
 
-export const DEFAULT_PROVIDER_MODELS = {
+export const DEFAULT_PROVIDER_MODELS: Partial<Record<ProviderId, string>> = {
   openai: 'gpt-4o-mini',
   claude: 'claude-sonnet-4-5',
   gemini: 'gemini-2.5-flash',
@@ -16,7 +88,7 @@ export const DEFAULT_PROVIDER_MODELS = {
   openrouter: 'openai/gpt-4o-mini',
 };
 
-export function createCategory(name, extras = {}) {
+export function createCategory(name: string, extras: Partial<Category> & { id?: string } = {}): Category {
   const trimmed = `${name ?? ''}`.trim();
   const id = extras.id || slugify(trimmed || 'general');
   return {
@@ -28,7 +100,7 @@ export function createCategory(name, extras = {}) {
   };
 }
 
-export function createDefaultState() {
+export function createDefaultState(): AutofillState {
   const category = createCategory('General', { id: 'general', active: true });
   return {
     settings: {
@@ -45,17 +117,17 @@ export function createDefaultState() {
   };
 }
 
-export function normalizeState(raw) {
+export function normalizeState(raw: unknown): AutofillState {
   const base = createDefaultState();
-  const state = raw && typeof raw === 'object' ? raw : {};
-  const settings = state.settings && typeof state.settings === 'object' ? state.settings : {};
+  const state = raw && typeof raw === 'object' ? (raw as Partial<AutofillState>) : {};
+  const settings = state.settings && typeof state.settings === 'object' ? (state.settings as Partial<SettingsState>) : {};
   const categories = Array.isArray(state.categories) ? state.categories : [];
   const memory = state.memory && typeof state.memory === 'object' ? state.memory : {};
   const normalizedCategories = categories.length ? categories.map((category, index) => normalizeCategory(category, index === 0)) : base.categories;
   const activeCategoryId = typeof state.activeCategoryId === 'string' ? state.activeCategoryId : normalizedCategories.find((category) => category.active)?.id ?? base.activeCategoryId;
   return {
     settings: {
-      provider: PROVIDERS.some((provider) => provider.id === settings.provider) ? settings.provider : base.settings.provider,
+      provider: PROVIDERS.some((provider) => provider.id === settings.provider) ? (settings.provider as ProviderId) : base.settings.provider,
       apiKeys: settings.apiKeys && typeof settings.apiKeys === 'object' ? settings.apiKeys : {},
       models: {
         ...DEFAULT_PROVIDER_MODELS,
@@ -71,13 +143,13 @@ export function normalizeState(raw) {
   };
 }
 
-export function buildStoragePatch(state, patch) {
+export function buildStoragePatch(state: unknown, patch: unknown): AutofillState {
   const current = normalizeState(state);
-  const next = { ...current, ...patch };
+  const next = { ...current, ...(patch && typeof patch === 'object' ? patch : {}) };
   return normalizeState(next);
 }
 
-export function slugify(value) {
+export function slugify(value: string): string {
   return `${value}`
     .toLowerCase()
     .normalize('NFKD')
@@ -87,8 +159,8 @@ export function slugify(value) {
     .slice(0, 64);
 }
 
-export function normalizeCategory(category, isFirst = false) {
-  const safe = category && typeof category === 'object' ? category : {};
+export function normalizeCategory(category: unknown, isFirst = false): Category {
+  const safe = category && typeof category === 'object' ? (category as Partial<Category> & { id?: string }) : {};
   const name = `${safe.name ?? ''}`.trim();
   return {
     id: `${safe.id ?? ''}`.trim() || slugify(name || 'category'),
@@ -99,12 +171,12 @@ export function normalizeCategory(category, isFirst = false) {
   };
 }
 
-export function getActiveCategory(state) {
+export function getActiveCategory(state: unknown): Category {
   const normalized = normalizeState(state);
   return normalized.categories.find((category) => category.id === normalized.activeCategoryId) ?? normalized.categories[0];
 }
 
-export function setActiveCategory(state, categoryId) {
+export function setActiveCategory(state: unknown, categoryId: string): AutofillState {
   const normalized = normalizeState(state);
   return {
     ...normalized,
@@ -116,7 +188,7 @@ export function setActiveCategory(state, categoryId) {
   };
 }
 
-export function upsertCategory(state, category) {
+export function upsertCategory(state: unknown, category: Category): AutofillState {
   const normalized = normalizeState(state);
   const nextCategory = normalizeCategory(category);
   const categories = normalized.categories.some((entry) => entry.id === nextCategory.id)
@@ -129,7 +201,7 @@ export function upsertCategory(state, category) {
   };
 }
 
-export function removeCategory(state, categoryId) {
+export function removeCategory(state: unknown, categoryId: string): AutofillState {
   const normalized = normalizeState(state);
   const categories = normalized.categories.filter((category) => category.id !== categoryId);
   const fallback = categories[0] ?? createDefaultState().categories[0];
@@ -141,7 +213,7 @@ export function removeCategory(state, categoryId) {
   };
 }
 
-export function getSiteKey(url) {
+export function getSiteKey(url: string): string {
   try {
     return new URL(url).hostname || 'unknown-site';
   } catch {
@@ -149,13 +221,13 @@ export function getSiteKey(url) {
   }
 }
 
-export function getFormKey(form, index = 0) {
+export function getFormKey(form: HTMLFormElement | null | undefined, index = 0): string {
   const action = form?.getAttribute?.('action') || '';
   const method = form?.getAttribute?.('method') || '';
   return slugify([action, method, index].filter(Boolean).join('|') || `form-${index}`);
 }
 
-export function getFieldKey(descriptor) {
+export function getFieldKey(descriptor: Partial<FieldDescriptor>): string {
   return slugify([
     descriptor.siteKey,
     descriptor.formKey,
@@ -166,7 +238,7 @@ export function getFieldKey(descriptor) {
   ].filter(Boolean).join('|'));
 }
 
-export function shouldBlockField(descriptor) {
+export function shouldBlockField(descriptor: Partial<FieldDescriptor>): boolean {
   const type = `${descriptor.type ?? ''}`.toLowerCase();
   if (type === 'password') {
     return true;
@@ -184,15 +256,19 @@ export function shouldBlockField(descriptor) {
   return /credit\s*card|cc(?:v|v2)?|cvc|cvv|ssn|social\s*security|password|secret|bank\s*account|routing\s*number/.test(haystack);
 }
 
-export function canShowSaveAction(descriptor) {
+export function canShowSaveAction(descriptor: Partial<FieldDescriptor>): boolean {
   return !shouldBlockField(descriptor) && ['text', 'search', 'email', 'tel', 'url', 'textarea', 'contenteditable'].includes(`${descriptor.type ?? ''}`.toLowerCase());
 }
 
-export function canShowFillAction(descriptor) {
+export function canShowFillAction(descriptor: Partial<FieldDescriptor>): boolean {
   return !shouldBlockField(descriptor) && descriptor.eligible !== false;
 }
 
-export function buildMemoryBucket(state, categoryId, siteKey) {
+export function buildMemoryBucket(state: unknown, categoryId?: string, siteKey?: string): {
+  category: string;
+  siteKey: string;
+  entries: Record<string, MemoryEntry>;
+} {
   const normalized = normalizeState(state);
   return {
     category: categoryId || normalized.activeCategoryId,
@@ -201,7 +277,7 @@ export function buildMemoryBucket(state, categoryId, siteKey) {
   };
 }
 
-export function setMemoryEntry(state, descriptor, value) {
+export function setMemoryEntry(state: unknown, descriptor: FieldDescriptor, value: string): AutofillState {
   const normalized = normalizeState(state);
   const categoryId = descriptor.categoryId || normalized.activeCategoryId;
   const siteKey = descriptor.siteKey || 'unknown-site';
@@ -227,7 +303,7 @@ export function setMemoryEntry(state, descriptor, value) {
   };
 }
 
-export function getMemoryEntry(state, descriptor) {
+export function getMemoryEntry(state: unknown, descriptor: FieldDescriptor): MemoryEntry | null {
   const normalized = normalizeState(state);
   const categoryId = descriptor.categoryId || normalized.activeCategoryId;
   const siteKey = descriptor.siteKey || 'unknown-site';
@@ -236,7 +312,7 @@ export function getMemoryEntry(state, descriptor) {
   return bucket[fieldKey] ?? null;
 }
 
-export function resolveFieldValue(state, descriptor) {
+export function resolveFieldValue(state: unknown, descriptor: FieldDescriptor): string {
   const normalized = normalizeState(state);
   const direct = getMemoryEntry(normalized, descriptor);
   if (direct) {
@@ -260,7 +336,7 @@ export function resolveFieldValue(state, descriptor) {
   return '';
 }
 
-export function buildAutofillPlan(state, descriptors) {
+export function buildAutofillPlan(state: unknown, descriptors: FieldDescriptor[]): AutofillPlanEntry[] {
   const normalized = normalizeState(state);
   return descriptors.map((descriptor) => ({
     key: getFieldKey(descriptor),
@@ -270,4 +346,3 @@ export function buildAutofillPlan(state, descriptors) {
     canFill: canShowFillAction(descriptor),
   }));
 }
-

@@ -81,10 +81,8 @@ Packages the Firefox build as a distributable archive.
 
 ```text
 shared/
-  providers.js    Provider request builders and response parsing.
-  providers.d.ts  Typed declarations for provider helpers.
-  state.js        Shared extension state and heuristics.
-  state.d.ts      Typed declarations for shared state helpers.
+  providers.ts    Provider request builders and response parsing.
+  state.ts        Shared extension state and heuristics.
 entrypoints/
   background.ts   Background script entrypoint.
   content.ts      Content script entrypoint.
