@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   createCategory,
   createDefaultState,
@@ -60,7 +61,7 @@ function App() {
     } else {
       setProviderMode('editing');
       setModelOptions([]);
-      setStatus('Add a provider key to unlock the rest of the popup.');
+      setStatus('');
     }
   }
 
@@ -215,8 +216,7 @@ function App() {
     <div className="popup">
       <header className="popup__header">
         <div>
-          <p className="eyebrow">AI Autofill</p>
-          <h1>Control center</h1>
+          <h1 className="eyebrow">AI Autofill</h1>
         </div>
         <div className="status">{status}</div>
       </header>
@@ -419,7 +419,14 @@ function App() {
         </>
       ) : (
         <section className="section unlock-message">
-          <p>Add and save an API key to unlock model selection, categories, autofill behavior, and the floating launcher settings.</p>
+          <p>
+            LLM API key is required to enable the autofill. Purchase any paid plan from{' '}
+            <ExternalLink href="https://platform.openai.com/home">OpenAI</ExternalLink>,{' '}
+            <ExternalLink href="https://platform.claude.com/dashboard">Claude AI</ExternalLink>,{' '}
+            <ExternalLink href="https://aistudio.google.com/app/api-keys">Google Gemini</ExternalLink>,{' '}
+            <ExternalLink href="https://console.x.ai">XAI</ExternalLink>, or find any Free LLM API from{' '}
+            <ExternalLink href="https://openrouter.ai/models">Openrouter</ExternalLink>.
+          </p>
         </section>
       )}
     </div>
@@ -445,6 +452,14 @@ function Toggle({
 
 function getProviderLabel(provider: ProviderId) {
   return PROVIDERS.find((entry) => entry.id === provider)?.label ?? provider;
+}
+
+function ExternalLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a href={href} target="_blank" rel="noreferrer noopener">
+      {children}
+    </a>
+  );
 }
 
 export default App;

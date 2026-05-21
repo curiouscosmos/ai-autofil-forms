@@ -271,3 +271,9 @@ button:disabled {
   line-height: 1.5;
   color: #cbd5e1;
 }
+
+.unlock-message a {
+  color: #93c5fd;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
