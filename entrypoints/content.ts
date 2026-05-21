@@ -17,6 +17,8 @@ type AppState = AutofillState;
 const fieldStates = new WeakMap<Element, { dirty: boolean; lastValue: string }>();
 let appState: AppState | null = null;
 let launcherVisible = true;
+let fieldRailHideTimer: ReturnType<typeof setTimeout> | null = null;
+const fieldRailHideDelayMs = 5000;
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -114,6 +116,9 @@ function createUi() {
         align-items: center;
         justify-content: center;
       }
+      .field-action--save {
+        min-width: 54px;
+      }
       .status {
         font-size: 12px;
         line-height: 1.4;
@@ -146,7 +151,7 @@ function createUi() {
     </div>
     <div class="field-rail" aria-live="polite">
       <button class="field-action" id="field-fill" title="Fill field" aria-label="Fill field">↯</button>
-      <button class="field-action" id="field-save" title="Save field" aria-label="Save field">＋</button>
+      <button class="field-action field-action--save" id="field-save" title="Save field" aria-label="Save field">Save</button>
     </div>
   `;
   return {
@@ -198,7 +203,7 @@ function attachListeners(ui: ReturnType<typeof createUi>) {
   document.addEventListener('pointerover', (event) => {
     const target = findField(event.target);
     if (!target || !appState?.settings.showFieldIcons) {
-      hideFieldRail(ui);
+      scheduleFieldRailHide(ui);
       return;
     }
     showFieldRail(ui, target);
@@ -207,10 +212,24 @@ function attachListeners(ui: ReturnType<typeof createUi>) {
   document.addEventListener('focusin', (event) => {
     const target = findField(event.target);
     if (!target || !appState?.settings.showFieldIcons) {
-      hideFieldRail(ui);
+      scheduleFieldRailHide(ui);
       return;
     }
     showFieldRail(ui, target);
+  });
+
+  document.addEventListener('pointerout', (event) => {
+    const target = findField(event.target);
+    if (!target) return;
+    const related = event.relatedTarget;
+    if (related instanceof Node && (target.contains(related) || ui.fieldRail.contains(related))) {
+      return;
+    }
+    scheduleFieldRailHide(ui);
+  });
+
+  document.addEventListener('focusout', () => {
+    scheduleFieldRailHide(ui);
   });
 
   document.addEventListener('input', (event) => {
@@ -256,6 +275,14 @@ function attachListeners(ui: ReturnType<typeof createUi>) {
     setStatus(ui, `Saved value for ${descriptor.label || descriptor.name || 'field'}.`);
   });
 
+  ui.fieldRail.addEventListener('pointerenter', () => {
+    clearFieldRailHideTimer();
+  });
+
+  ui.fieldRail.addEventListener('pointerleave', () => {
+    scheduleFieldRailHide(ui);
+  });
+
   browser.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local' || !changes[STORAGE_KEY]) return;
     appState = normalizeState(changes[STORAGE_KEY].newValue ?? createDefaultState());
@@ -295,14 +322,20 @@ function setStatus(ui: ReturnType<typeof createUi>, text: string) {
 }
 
 function showFieldRail(ui: ReturnType<typeof createUi>, field: HTMLElement): void {
+  clearFieldRailHideTimer();
   const descriptor = describeField(field);
   if (descriptor.blockedForm || !canShowFillAction(descriptor)) {
     hideFieldRail(ui);
     return;
   }
+  const state = fieldStates.get(field);
+  if (!state?.dirty && getFieldValue(field).trim() !== '') {
+    hideFieldRail(ui);
+    return;
+  }
   ui.fieldRail.dataset.open = 'true';
   ui.fieldRail.dataset.fieldId = ensureFieldId(field);
-  ui.fieldSaveButton.hidden = !canShowSaveAction(descriptor) || !fieldStates.get(field)?.dirty;
+  ui.fieldSaveButton.hidden = !canShowSaveAction(descriptor) || !state?.dirty;
   const rect = getFieldRect(field);
   ui.fieldRail.style.top = `${rect.top + rect.height / 2}px`;
   ui.fieldRail.style.left = `${Math.min(window.innerWidth - 120, rect.right + 8)}px`;
@@ -310,9 +343,24 @@ function showFieldRail(ui: ReturnType<typeof createUi>, field: HTMLElement): voi
 }
 
 function hideFieldRail(ui: ReturnType<typeof createUi>): void {
+  clearFieldRailHideTimer();
   ui.fieldRail.dataset.open = 'false';
   ui.fieldRail.removeAttribute('data-field-id');
   ui.fieldRail.style.display = 'none';
+}
+
+function scheduleFieldRailHide(ui: ReturnType<typeof createUi>): void {
+  clearFieldRailHideTimer();
+  fieldRailHideTimer = setTimeout(() => {
+    hideFieldRail(ui);
+  }, fieldRailHideDelayMs);
+}
+
+function clearFieldRailHideTimer(): void {
+  if (fieldRailHideTimer) {
+    clearTimeout(fieldRailHideTimer);
+    fieldRailHideTimer = null;
+  }
 }
 
 function repositionOpenFieldRail(ui: ReturnType<typeof createUi>): void {
