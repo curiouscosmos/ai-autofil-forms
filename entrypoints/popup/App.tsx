@@ -23,6 +23,8 @@ function App() {
   const [state, setAppState] = useState<AutofillState>(initialState);
   const [status, setStatus] = useState('Loading settings...');
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+  const [categoryEditorId, setCategoryEditorId] = useState<string | 'new' | null>(null);
   const [providerMode, setProviderMode] = useState<ProviderMode>('editing');
   const [providerDraft, setProviderDraft] = useState({
     provider: initialState.settings.provider as ProviderId,
@@ -57,7 +59,7 @@ function App() {
     if (savedKey) {
       setProviderMode('connected');
       await refreshModels(current.settings.provider, savedKey, current.settings.models[current.settings.provider]);
-      setStatus(`Connected to ${getProviderLabel(current.settings.provider)}.`);
+      setStatus(`Connected to ${getProviderLabel(current.settings.provider)}`);
     } else {
       setProviderMode('editing');
       setModelOptions([]);
@@ -172,6 +174,7 @@ function App() {
   async function toggleCategory(categoryId: string) {
     const next = setActiveCategory(state, categoryId);
     await persist(next);
+    setCategoryEditorId(categoryId);
   }
 
   async function saveCategory(nextCategory = activeCategory) {
@@ -185,6 +188,8 @@ function App() {
     const next = createCategory(newCategoryName.trim(), { active: true });
     await persist(setActiveCategory(upsertCategory(state, next), next.id));
     setNewCategoryName('');
+    setIsCreatingCategory(false);
+    setCategoryEditorId(next.id);
     setStatus(`Created ${next.name}.`);
   }
 
@@ -320,10 +325,11 @@ function App() {
           <section className="section">
             <div className="section__row">
               <h2>Categories</h2>
-              <button className="ghost" onClick={() => void saveCategory()}>
-                Save current
+              <button className="ghost" onClick={() => setCategoryEditorId('new')}>
+                Create Category
               </button>
             </div>
+            <p className="section-note">Categories help the AI model to save the context and instructions for filling forms. For example: Job applications, travel forms etc.</p>
             <div className="category-list">
               {state.categories.map((category) => (
                 <button
@@ -337,84 +343,98 @@ function App() {
                 </button>
               ))}
             </div>
-            <div className="stack">
-              <label>
-                <span>New category</span>
-                <div className="inline">
-                  <input
-                    value={newCategoryName}
-                    onChange={(event) => setNewCategoryName(event.target.value)}
-                    placeholder="Job Applications"
-                  />
-                  <button type="button" onClick={() => void addCategory()}>
-                    Add
-                  </button>
-                </div>
-              </label>
 
-              {activeCategory ? (
-                <div className="category-editor">
+            {categoryEditorId ? (
+              <div className="category-editor">
+                {categoryEditorId === 'new' ? (
                   <label>
-                    <span>Name</span>
-                    <input
-                      value={activeCategory.name}
-                      onChange={(event) =>
-                        setAppState({
-                          ...state,
-                          categories: state.categories.map((category) =>
-                            category.id === activeCategory.id ? { ...category, name: event.target.value } : category,
-                          ),
-                        })
-                      }
-                    />
+                    <span>New category name</span>
+                    <div className="inline">
+                      <input
+                        value={newCategoryName}
+                        onChange={(event) => setNewCategoryName(event.target.value)}
+                        placeholder="Job Applications"
+                      />
+                      <button type="button" onClick={() => void addCategory()}>
+                        Add
+                      </button>
+                    </div>
                   </label>
-                  <label>
-                    <span>Instructions</span>
-                    <textarea
-                      value={activeCategory.instructions}
-                      onChange={(event) =>
-                        setAppState({
-                          ...state,
-                          categories: state.categories.map((category) =>
-                            category.id === activeCategory.id ? { ...category, instructions: event.target.value } : category,
-                          ),
-                        })
-                      }
-                      placeholder="Tell the AI what to prioritize for this category."
-                    />
-                  </label>
-                  <label>
-                    <span>Upload supporting file</span>
-                    <input type="file" multiple onChange={(event) => void uploadFiles(activeCategory, event.target.files)} />
-                  </label>
-                  <div className="file-list">
-                    {activeCategory.files.length ? (
-                      activeCategory.files.map((file) => (
-                        <div className="file-item" key={`${activeCategory.id}-${file.name}-${file.size}`}>
-                          <strong>{file.name}</strong>
-                          <small>{Math.max(1, Math.round(file.text.length / 1024))} KB extracted text</small>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="muted">No files stored for this category.</p>
-                    )}
-                  </div>
-                  <div className="actions">
-                    <button type="button" className="ghost" onClick={() => void saveCategory(activeCategory)}>
-                      Save category
-                    </button>
-                    <button
-                      type="button"
-                      className="danger"
-                      onClick={() => void deleteCategory(activeCategory.id)}
-                      disabled={state.categories.length === 1}
-                    >
-                      Delete category
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-            </div>
+                ) : activeCategory ? (
+                  <>
+                    <div className="section__row">
+                      <h3>{activeCategory.name}</h3>
+                      <button type="button" className="ghost" onClick={() => void saveCategory(activeCategory)}>
+                        Save category
+                      </button>
+                    </div>
+                    <label>
+                      <span>Name</span>
+                      <input
+                        value={activeCategory.name}
+                        onChange={(event) =>
+                          setAppState({
+                            ...state,
+                            categories: state.categories.map((category) =>
+                              category.id === activeCategory.id ? { ...category, name: event.target.value } : category,
+                            ),
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>Instructions</span>
+                      <textarea
+                        value={activeCategory.instructions}
+                        onChange={(event) =>
+                          setAppState({
+                            ...state,
+                            categories: state.categories.map((category) =>
+                              category.id === activeCategory.id ? { ...category, instructions: event.target.value } : category,
+                            ),
+                          })
+                        }
+                        placeholder="Tell the AI what to prioritize for this category."
+                      />
+                    </label>
+                    <label>
+                      <span>Upload supporting file</span>
+                      <input
+                        type="file"
+                        multiple
+                        aria-describedby="category-upload-help"
+                        onChange={(event) => void uploadFiles(activeCategory, event.target.files)}
+                      />
+                      <small id="category-upload-help" className="section-note">
+                        Upload helper documents, for example Resume for Job Applications
+                      </small>
+                    </label>
+                    <div className="file-list">
+                      {activeCategory.files.length ? (
+                        activeCategory.files.map((file) => (
+                          <div className="file-item" key={`${activeCategory.id}-${file.name}-${file.size}`}>
+                            <strong>{file.name}</strong>
+                            <small>{Math.max(1, Math.round(file.text.length / 1024))} KB extracted text</small>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="muted">No files stored for this category.</p>
+                      )}
+                    </div>
+                    <div className="actions">
+                      <button
+                        type="button"
+                        className="danger"
+                        onClick={() => void deleteCategory(activeCategory.id)}
+                        disabled={state.categories.length === 1}
+                      >
+                        Delete category
+                      </button>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
           </section>
         </>
       ) : (

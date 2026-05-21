@@ -60,6 +60,12 @@
   color: #cbd5e1;
 }
 
+.section h3 {
+  margin: 0;
+  font-size: 14px;
+  color: #f8fafc;
+}
+
 .section__row {
   display: flex;
   justify-content: space-between;
@@ -190,8 +196,8 @@ button:disabled {
 }
 
 .category--active {
-  border-color: #6366f1;
-  background: #111827;
+  border-color: #22c55e;
+  background: #052e16;
 }
 
 .category small,
@@ -233,6 +239,13 @@ button:disabled {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.section-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #94a3b8;
 }
 
 .provider-summary {
